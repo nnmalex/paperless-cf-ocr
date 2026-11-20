@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+tools/lab/results/
+tools/lab/samples/*
+!tools/lab/samples/README.md
