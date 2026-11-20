@@ -21,7 +21,7 @@ permissions:
 jobs:
   mock:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -46,16 +46,18 @@ jobs:
           sudo chmod 755 tests_e2e/init && sudo chmod 744 tests_e2e/init/*.sh
           echo "CF_OCR_WHEEL=/wheels/$(basename tests_e2e/wheels/*.whl)" >> "$GITHUB_ENV"
       - run: $COMPOSE up -d --build
-      - run: python tests_e2e/run_e2e.py
-      - if: failure()
-        run: $COMPOSE logs --no-color
+      - run: sleep 20 && $COMPOSE ps -a && $COMPOSE logs --no-color --tail 40
+      - run: python -u tests_e2e/run_e2e.py
+        timeout-minutes: 25
+      - if: failure() || cancelled()
+        run: $COMPOSE ps -a; $COMPOSE logs --no-color
       - if: always()
         run: $COMPOSE down -v
 
   live:
     if: github.event_name == 'workflow_dispatch' && inputs.live
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       PAPERLESS_TAG: "3.5.1"
       COMPOSE: docker compose -f tests_e2e/compose.yml -f tests_e2e/compose.installer.yml
@@ -73,8 +75,10 @@ jobs:
           python-version: "3.14"
       - run: pip install httpx pillow fpdf2
       - run: $COMPOSE up -d --build
-      - run: python tests_e2e/run_e2e.py
-      - if: failure()
-        run: $COMPOSE logs --no-color
+      - run: sleep 20 && $COMPOSE ps -a && $COMPOSE logs --no-color --tail 40
+      - run: python -u tests_e2e/run_e2e.py
+        timeout-minutes: 25
+      - if: failure() || cancelled()
+        run: $COMPOSE ps -a; $COMPOSE logs --no-color
       - if: always()
         run: $COMPOSE down -v

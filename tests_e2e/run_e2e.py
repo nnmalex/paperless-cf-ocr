@@ -67,15 +67,21 @@ def make_docs(d: Path) -> dict[str, Path]:
 
 
 def wait_for_api(client: httpx.Client, timeout: float = 900) -> None:
-    t0 = time.monotonic()
+    t0, last = time.monotonic(), ""
     while time.monotonic() - t0 < timeout:
         try:
-            if client.get("/api/documents/").status_code == 200:
-                print(f"Paperless API ready after {time.monotonic() - t0:.0f}s")
+            r = client.get("/api/documents/")
+            state = f"HTTP {r.status_code}"
+            if r.status_code == 200:
+                print(f"Paperless API ready after {time.monotonic() - t0:.0f}s", flush=True)
                 return
-        except httpx.HTTPError:
-            pass
+        except httpx.HTTPError as e:
+            state = type(e).__name__
+        if state != last:
+            print(f"  waiting for Paperless API: {state} ({time.monotonic() - t0:.0f}s)", flush=True)
+            last = state
         time.sleep(5)
+    print(logs()[-6000:])
     sys.exit("Paperless did not become ready")
 
 
@@ -90,7 +96,7 @@ def consume(client: httpx.Client, path: Path, timeout: float = 600) -> dict:
         task = (tasks.get("results", tasks) if isinstance(tasks, dict) else tasks)
         task = task[0] if task else {}
         if task.get("status") in ("SUCCESS", "FAILURE"):
-            print(f"  {path.name}: {task['status']} after {time.monotonic() - t0:.0f}s")
+            print(f"  {path.name}: {task['status']} after {time.monotonic() - t0:.0f}s", flush=True)
             if task["status"] != "SUCCESS":
                 return {"_error": task.get("result")}
             doc_id = task.get("related_document")
