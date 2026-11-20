@@ -49,3 +49,11 @@ def test_exif_orientation_applied() -> None:
     im.save(buf, "JPEG", exif=exif)
     out = _open(render.encode_jpeg(Image.open(io.BytesIO(buf.getvalue())), 2048))
     assert out.size == (200, 400)
+
+
+def test_image_thumbnail_fallback(samples, tmp_path) -> None:
+    out = tmp_path / "t.webp"
+    render.image_thumbnail(samples["png"], out)
+    im = _open(out.read_bytes())
+    assert im.format == "WEBP" and im.size[0] <= 500 and im.size[1] <= 700
+    assert im.getpixel((5, 5)) == (255, 255, 255)

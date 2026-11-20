@@ -379,3 +379,11 @@ def test_fallback_fail_still_raises_in_hybrid(paperless, env, gw, tess, samples)
     gw.post(WAI).mock(return_value=httpx.Response(400, json={"error": {"message": "bad"}}))
     with pytest.raises(ParseError, match="page 1"):
         run(samples["tiff"], "image/tiff", produce_archive=True)
+
+
+def test_image_thumbnail_on_paperless_before_3_4(paperless, env, samples, monkeypatch) -> None:
+    import sys
+    monkeypatch.delattr(sys.modules["documents.parsers"], "encode_thumbnail_webp")
+    with p.CloudflareOcrParser() as parser:
+        thumb = parser.get_thumbnail(samples["png"], "image/png")
+        assert thumb.exists() and thumb.read_bytes()[8:12] == b"WEBP"

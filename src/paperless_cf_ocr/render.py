@@ -41,6 +41,27 @@ def encode_jpeg(im: Image.Image, max_px: int) -> bytes:
     return buf.getvalue()
 
 
+THUMB_MAX = (500, 700)
+
+
+def image_thumbnail(src: Path, out: Path) -> None:
+    """WebP thumbnail for an image document (first frame, alpha flattened onto white).
+
+    Fallback for Paperless < 3.4, whose ``documents.parsers`` lacks ``encode_thumbnail_webp``.
+    """
+    with Image.open(src) as im:
+        im = ImageOps.exif_transpose(im)
+        if im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info):
+            rgba = im.convert("RGBA")
+            flat = Image.new("RGB", rgba.size, (255, 255, 255))
+            flat.paste(rgba, mask=rgba.split()[-1])
+            im = flat
+        else:
+            im = im.convert("RGB")
+        im.thumbnail(THUMB_MAX, Image.Resampling.LANCZOS)
+        im.save(out, format="WEBP")
+
+
 def pdf_page_count(path: Path) -> int:
     import pypdfium2 as pdfium
 

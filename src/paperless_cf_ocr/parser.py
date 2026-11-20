@@ -15,7 +15,7 @@ from types import TracebackType
 from typing import TYPE_CHECKING, Self
 
 from django.conf import settings
-from documents.parsers import ParseError, encode_thumbnail_webp, make_thumbnail_from_pdf
+from documents.parsers import ParseError, make_thumbnail_from_pdf
 from paperless.parsers.utils import (
     extract_pdf_metadata,
     get_page_count_for_pdf,
@@ -307,7 +307,12 @@ class CloudflareOcrParser:
     def get_thumbnail(self, document_path: Path, mime_type: str) -> Path:
         if self._archive_path is None and mime_type.startswith("image/"):
             out = self._tempdir / "thumb.webp"
-            encode_thumbnail_webp(Path(document_path), out)
+            try:  # Paperless >= 3.4
+                from documents.parsers import encode_thumbnail_webp
+            except ImportError:
+                render.image_thumbnail(Path(document_path), out)
+            else:
+                encode_thumbnail_webp(Path(document_path), out)
             return out
         return make_thumbnail_from_pdf(self._archive_path or Path(document_path), self._tempdir,
                                        self._logging_group)
