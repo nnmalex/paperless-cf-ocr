@@ -5,6 +5,7 @@ Registered through the ``paperless_ngx.parsers`` entry point (see pyproject.toml
 
 from __future__ import annotations
 
+import concurrent.futures as cf
 import logging
 import shutil
 import subprocess
@@ -79,6 +80,15 @@ def _ocr_settings() -> tuple[str, str, int | None]:
                 getattr(settings, "OCR_PAGES", None) or None)
 
 
+def _tesseract_parser() -> type | None:
+    """Paperless's built-in Tesseract/ocrmypdf parser, used to build hybrid archives."""
+    try:
+        from paperless.parsers.tesseract import RasterisedDocumentParser
+    except Exception:  # noqa: BLE001 - not inside Paperless, or an incompatible version
+        return None
+    return RasterisedDocumentParser
+
+
 def _apply_pixel_limit() -> None:
     """Honour PAPERLESS_MAX_IMAGE_PIXELS for large scans, as the Tesseract parser does."""
     try:
@@ -128,8 +138,11 @@ class CloudflareOcrParser:
 
     @property
     def can_produce_archive(self) -> bool:
-        # Searchable archive PDFs arrive with the hybrid mode (milestone 5).
-        return False
+        """Hybrid mode: Paperless's own Tesseract pipeline builds the searchable archive PDF
+        (positioned text layer, PDF/A, deskew/rotate settings), while the document content
+        comes from the vision model."""
+        res = config.load()
+        return bool(res.ok and res.settings.archive == "hybrid" and _tesseract_parser() is not None)
 
     @property
     def requires_pdf_rendition(self) -> bool:
@@ -143,6 +156,7 @@ class CloudflareOcrParser:
         self._logging_group = logging_group
         self._text: str = ""
         self._archive_path: Path | None = None
+        self._context: ParserContext | None = None
 
     def __enter__(self) -> Self:
         return self
@@ -152,7 +166,7 @@ class CloudflareOcrParser:
         shutil.rmtree(self._tempdir, ignore_errors=True)
 
     def configure(self, context: ParserContext) -> None:
-        pass
+        self._context = context
 
     # -- parsing ---------------------------------------------------------------------------
 
@@ -163,34 +177,86 @@ class CloudflareOcrParser:
         s = res.settings
         ocr_mode, language, ocr_pages = _ocr_settings()
         limit = min(s.max_pages, ocr_pages) if ocr_pages else s.max_pages
+        want_archive = produce_archive and s.archive == "hybrid"
 
+        pages: list[bytes] = []
+        local_text = ""
         if mime_type == "application/pdf":
-            local_text, born_digital = pdf_born_digital_text(document_path, log=logger)
+            local, born_digital = pdf_born_digital_text(document_path, log=logger)
+            local_text = local or ""
             ratio = render.scanned_page_ratio(document_path) if born_digital else None
             decision = decide_pdf(ocr_mode, s.existing_text, born_digital, ratio)
             logger.debug("PDF text decision: %s (ocr_mode=%s existing_text=%s born_digital=%s "
                          "scanned_ratio=%s)", decision, ocr_mode, s.existing_text, born_digital,
                          ratio)
-            if decision == KEEP_LOCAL:
-                self._text = local_text or ""
-                return
-            total = render.pdf_page_count(document_path)
-            pages = list(render.pdf_pages(document_path, s.dpi, s.max_image_px, limit))
+            if decision == OCR:
+                total = render.pdf_page_count(document_path)
+                pages = list(render.pdf_pages(document_path, s.dpi, s.max_image_px, limit))
+        elif ocr_mode == "off":
+            logger.info("PAPERLESS_OCR_MODE=off: not running OCR on image document")
         else:
-            if ocr_mode == "off":
-                logger.info("PAPERLESS_OCR_MODE=off: not running OCR on image document")
-                self._text = ""
-                return
             _apply_pixel_limit()
             pages = list(render.image_pages(document_path, s.max_image_px, limit))
             total = len(pages)
 
-        if total > len(pages):
+        if pages and total > len(pages):
             logger.warning("Only the first %d of %d pages are OCR'd (PAPERLESS_CF_OCR_MAX_PAGES/"
                            "PAPERLESS_OCR_PAGES)", len(pages), total)
-        self._text = self._ocr(pages, s, language)
 
-    def _ocr(self, pages: list[bytes], s: config.Settings, language: str) -> str:
+        # Gateway OCR runs in the background (I/O bound) while the archive is built on this
+        # thread: ocrmypdf uses multiprocessing and signal handlers, so it must not be
+        # started from a worker thread.
+        with cf.ThreadPoolExecutor(max_workers=1, thread_name_prefix="cf-ocr") as ex:
+            ocr_future = ex.submit(self._ocr, pages, s, language) if pages else None
+            hybrid_text = self._build_archive(document_path, mime_type) if want_archive else None
+            outcome = ocr_future.result() if ocr_future else None
+
+        if outcome is None:  # nothing to OCR: born-digital/trusted text, or OCR_MODE=off
+            self._text = local_text
+            return
+        text, all_failed, first_error = outcome
+        if all_failed:
+            if hybrid_text and hybrid_text.strip():
+                logger.warning("Cloudflare OCR failed on every page (%s); using the Tesseract "
+                               "text from the archive pass", first_error)
+                text = post_process_text(hybrid_text) or ""
+            elif not text.strip():
+                raise ParseError(f"Cloudflare OCR failed on every page: {first_error}")
+        self._text = text
+
+    def _build_archive(self, document_path: Path, mime_type: str) -> str | None:
+        """Run Paperless's Tesseract parser for its searchable archive PDF.
+
+        Returns Tesseract's text (used only if the gateway fails on every page). Archive
+        problems never fail the document: Paperless then simply shows the original.
+        """
+        tesseract_cls = _tesseract_parser()
+        if tesseract_cls is None:
+            logger.warning("Hybrid archive requested but Paperless's Tesseract parser is "
+                           "unavailable; no archive file")
+            return None
+        try:
+            with tesseract_cls(self._logging_group) as t:
+                if self._context is not None:
+                    t.configure(self._context)
+                t.parse(Path(document_path), mime_type, produce_archive=True)
+                produced = t.get_archive_path()
+                if produced and Path(produced).exists():
+                    dest = self._tempdir / "archive.pdf"
+                    shutil.copyfile(produced, dest)  # t's tempdir is removed on exit
+                    self._archive_path = dest
+                    logger.debug("Hybrid archive built by Tesseract: %s", dest)
+                else:
+                    logger.info("Tesseract produced no archive file for this document")
+                return t.get_text()
+        except Exception as e:  # noqa: BLE001 - archive is best-effort
+            logger.warning("Hybrid archive generation failed (%s: %s); keeping the original "
+                           "for display", type(e).__name__, e)
+            return None
+
+    def _ocr(self, pages: list[bytes], s: config.Settings,
+             language: str) -> tuple[str, bool, OcrError | None]:
+        """OCR pages; returns (text, every page failed, first error)."""
         results: list[PageResult | OcrError]
         try:
             with GatewayClient(s) as gw:
@@ -220,12 +286,12 @@ class CloudflareOcrParser:
                 logger.warning("Page %d: Cloudflare OCR failed (%s); used Tesseract", i + 1, r)
                 texts.append(fb)
 
-        if failed and len(failed) == len(pages) and not any(t.strip() for t in texts):
-            raise ParseError(f"Cloudflare OCR failed on every page: {results[0]}")
         logger.info("Cloudflare OCR: %d page(s), %d low-confidence, %d second opinion(s), "
                     "%d failed%s", len(pages), low, second, len(failed),
                     f" {failed}" if failed else "")
-        return post_process_text("\n\n".join(texts)) or ""
+        first_error = next((r for r in results if isinstance(r, OcrError)), None)
+        return (post_process_text("\n\n".join(texts)) or "",
+                bool(failed) and len(failed) == len(pages), first_error)
 
     # -- results ---------------------------------------------------------------------------
 

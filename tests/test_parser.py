@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from importlib.metadata import entry_points
+from typing import ClassVar
 
 import httpx
 import pytest
@@ -235,3 +236,146 @@ def test_thumbnail_page_count_metadata(paperless, env, samples) -> None:
         tmp = parser._tempdir
         assert tmp.exists()
     assert not tmp.exists()
+
+
+# --- hybrid archive (milestone 5) -----------------------------------------------------
+
+
+class FakeTesseract:
+    """Stands in for paperless.parsers.tesseract.RasterisedDocumentParser."""
+
+    calls: ClassVar[list[dict]] = []
+    fail: Exception | None = None
+    produce: bool = True
+    text = "tesseract text"
+
+    def __init__(self, logging_group=None) -> None:
+        import tempfile
+        import threading
+        from pathlib import Path
+
+        self.tmp = Path(tempfile.mkdtemp())
+        self.rec = {"thread": threading.current_thread() is threading.main_thread(),
+                    "context": None, "group": logging_group}
+        self._archive = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc) -> None:
+        import shutil
+        shutil.rmtree(self.tmp)
+
+    def configure(self, context) -> None:
+        self.rec["context"] = context
+
+    def parse(self, path, mime, *, produce_archive=True) -> None:
+        self.rec.update(path=path, mime=mime, produce_archive=produce_archive)
+        FakeTesseract.calls.append(self.rec)
+        if FakeTesseract.fail:
+            raise FakeTesseract.fail
+        if FakeTesseract.produce:
+            self._archive = self.tmp / "archive.pdf"
+            self._archive.write_bytes(b"%PDF-1.7 archive")
+
+    def get_archive_path(self):
+        return self._archive
+
+    def get_text(self) -> str:
+        return FakeTesseract.text
+
+
+@pytest.fixture
+def tess(monkeypatch):
+    FakeTesseract.calls, FakeTesseract.fail, FakeTesseract.produce = [], None, True
+    FakeTesseract.text = "tesseract text"
+    monkeypatch.setattr(p, "_tesseract_parser", lambda: FakeTesseract)
+    return FakeTesseract
+
+
+def test_can_produce_archive_in_hybrid_mode(paperless, env, tess) -> None:
+    with p.CloudflareOcrParser() as parser:
+        assert parser.can_produce_archive is True
+    env.setenv("PAPERLESS_CF_OCR_ARCHIVE", "none")
+    with p.CloudflareOcrParser() as parser:
+        assert parser.can_produce_archive is False
+
+
+def test_can_produce_archive_false_without_tesseract(paperless, env) -> None:
+    with p.CloudflareOcrParser() as parser:
+        assert parser.can_produce_archive is False  # fake env has no tesseract parser
+
+
+def test_hybrid_archive_with_llm_text(paperless, env, gw, tess, samples) -> None:
+    gw.post(WAI).mock(return_value=ok("LLM text"))
+    ctx = object()
+    with p.CloudflareOcrParser("grp") as parser:
+        parser.configure(ctx)
+        parser.parse(samples["tiff"], "image/tiff", produce_archive=True)
+        archive = parser.get_archive_path()
+        assert parser.get_text() == "LLM text\n\nLLM text\n\nLLM text"  # content from the LLM
+        assert archive is not None and archive.read_bytes() == b"%PDF-1.7 archive"
+        assert archive.parent == parser._tempdir  # copied before Tesseract cleaned up
+        parser.get_thumbnail(samples["tiff"], "image/tiff")
+        assert paperless.thumbnails[-1] == archive  # thumbnail from the archive PDF
+    (call,) = tess.calls
+    assert call["thread"] is True  # ocrmypdf must run on the calling (main) thread
+    assert call["produce_archive"] is True and call["context"] is ctx and call["group"] == "grp"
+
+
+def test_no_archive_when_not_requested(paperless, env, gw, tess, samples) -> None:
+    gw.post(WAI).mock(return_value=ok("x"))
+    _, parser = run(samples["scan_pdf"], "application/pdf", produce_archive=False)
+    assert tess.calls == [] and parser.get_archive_path() is None
+
+
+def test_no_archive_when_archive_mode_none(paperless, env, gw, tess, samples) -> None:
+    env.setenv("PAPERLESS_CF_OCR_ARCHIVE", "none")
+    gw.post(WAI).mock(return_value=ok("x"))
+    _, parser = run(samples["scan_pdf"], "application/pdf", produce_archive=True)
+    assert tess.calls == [] and parser.get_archive_path() is None
+
+
+def test_archive_failure_does_not_fail_document(paperless, env, gw, tess, samples) -> None:
+    tess.fail = RuntimeError("ghostscript exploded")
+    gw.post(WAI).mock(return_value=ok("still here"))
+    text, parser = run(samples["scan_pdf"], "application/pdf", produce_archive=True)
+    assert text == "still here\n\nstill here" and parser.get_archive_path() is None
+
+
+def test_tesseract_without_archive_file(paperless, env, gw, tess, samples) -> None:
+    tess.produce = False
+    gw.post(WAI).mock(return_value=ok("x"))
+    _, parser = run(samples["scan_pdf"], "application/pdf", produce_archive=True)
+    assert parser.get_archive_path() is None
+
+
+def test_born_digital_with_archive_always(paperless, env, gw, tess, samples) -> None:
+    # ARCHIVE_FILE_GENERATION=always on a born-digital PDF: keep its text, still build archive.
+    paperless.pdf_text, paperless.born_digital = "digital text", True
+    route = gw.post(WAI).mock(return_value=ok("never"))
+    text, parser = run(samples["digital_pdf"], "application/pdf", produce_archive=True)
+    assert text == "digital text" and route.call_count == 0
+    assert parser.get_archive_path() is not None
+
+
+def test_ocr_mode_off_still_converts_archive(paperless, env, gw, tess, samples) -> None:
+    paperless.ocr_mode = "off"
+    route = gw.post(WAI).mock(return_value=ok("never"))
+    text, parser = run(samples["tiff"], "image/tiff", produce_archive=True)
+    assert text == "" and route.call_count == 0 and parser.get_archive_path() is not None
+
+
+def test_all_pages_failed_uses_archive_tesseract_text(paperless, env, gw, tess, samples,
+                                                      monkeypatch) -> None:
+    monkeypatch.setattr(p.shutil, "which", lambda name: None)  # no per-page fallback
+    gw.post(WAI).mock(return_value=httpx.Response(400, json={"error": {"message": "bad"}}))
+    text, parser = run(samples["tiff"], "image/tiff", produce_archive=True)
+    assert text == "tesseract text" and parser.get_archive_path() is not None
+
+
+def test_fallback_fail_still_raises_in_hybrid(paperless, env, gw, tess, samples) -> None:
+    env.setenv("PAPERLESS_CF_OCR_FALLBACK", "fail")
+    gw.post(WAI).mock(return_value=httpx.Response(400, json={"error": {"message": "bad"}}))
+    with pytest.raises(ParseError, match="page 1"):
+        run(samples["tiff"], "image/tiff", produce_archive=True)

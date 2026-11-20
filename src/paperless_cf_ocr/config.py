@@ -80,6 +80,9 @@ class Settings:
     # Optional: re-run low-confidence pages on this model and use its output instead,
     # e.g. "anthropic/claude-sonnet-5-5". None disables the second opinion.
     second_opinion_model: str | None = None
+    # "low-confidence": only pages the primary model is unsure about go to the second model;
+    # "always": every page goes to the second model (primary only as its fallback).
+    second_opinion: str = "low-confidence"
     low_confidence_ratio: float = 0.01  # page is low-confidence if >1% of words have p<0.5
     low_confidence_min: float = 0.2  # ...or any single word has p<0.2 (or [illegible] appears)
     max_tokens: int = 8192
@@ -125,7 +128,9 @@ class Settings:
         """Secret-free summary for logs."""
         return (
             f"gateway={self.gateway.gateway_id} model={self.model} "
-            f"second_opinion={self.second_opinion_model or 'off'} source={self.source} "
+            f"second_opinion={self.second_opinion_model or 'off'}"
+            f"{f'({self.second_opinion})' if self.second_opinion_model else ''} "
+            f"source={self.source} "
             f"auth={'api-token' if self.api_token else ''}"
             f"{'+' if self.api_token and self.gateway_token else ''}"
             f"{'gateway-token' if self.gateway_token else ''}"
@@ -294,6 +299,8 @@ def resolve(env: Mapping[str, str], ai: AISettings | None = None) -> Resolution:
         gateway_token=gateway_token,
         model=get("MODEL") or DEFAULT_MODEL,
         second_opinion_model=get("SECOND_OPINION_MODEL"),
+        second_opinion=get_choice("SECOND_OPINION", "low-confidence",
+                                  ("low-confidence", "always")),
         low_confidence_ratio=get_float("LOW_CONFIDENCE_RATIO", 0.01, 0.0, 1.0),
         low_confidence_min=get_float("LOW_CONFIDENCE_MIN", 0.2, 0.0, 1.0),
         max_tokens=get_int("MAX_TOKENS", 8192, 256, 65536),

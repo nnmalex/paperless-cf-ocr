@@ -239,6 +239,19 @@ class GatewayClient:
     def ocr_page(self, image: bytes, mime: str, label: str = "page") -> PageResult:
         t0 = time.monotonic()
         second = self.s.second_opinion_model
+        if second and self.s.second_opinion == "always":
+            try:
+                alt = self.transcribe(image, mime, model=second)
+            except AuthError:
+                raise
+            except OcrError as e:
+                logger.warning("%s: second-opinion model %s failed (%s); using %s",
+                               label, second, e, self.s.model)
+            else:
+                return PageResult(alt.text, alt.model, None, low_confidence=False,
+                                  second_opinion_used=True, truncated=alt.truncated,
+                                  seconds=time.monotonic() - t0)
+            second = None  # primary is now the fallback; don't loop back to the failed model
         try:
             first = self.transcribe(image, mime)
         except AuthError:

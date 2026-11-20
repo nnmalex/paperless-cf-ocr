@@ -1,0 +1,6 @@
+# Versions locked by Paperless-ngx v3.5.1 (uv.lock) for libraries the plugin and the
+# integration tests share with Paperless. Install with: pip install -c <this file> ...
+ocrmypdf==17.12.1
+pikepdf==10.13.0.post1
+pillow==13.0.0
+pypdfium2==5.6.0

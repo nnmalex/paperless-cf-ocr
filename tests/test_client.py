@@ -292,3 +292,27 @@ def test_ocr_pages_auth_error_aborts(gw) -> None:
     client, _ = mk()
     with pytest.raises(cl.AuthError):
         client.ocr_pages([(b"1", "image/png"), (b"2", "image/png")])
+
+
+def test_always_mode_uses_second_model_only(gw) -> None:
+    wai = gw.post(WAI).mock(return_value=ok("qwen", CLEAN))
+    gw.post(COMPAT).mock(return_value=ok("sonnet"))
+    client, _ = mk(settings(SECOND_OPINION_MODEL=SONNET, SECOND_OPINION="always"))
+    r = client.ocr_page(b"x", "image/png")
+    assert r.text == "sonnet" and r.model == SONNET and r.second_opinion_used
+    assert wai.call_count == 0
+
+
+def test_always_mode_falls_back_to_primary(gw) -> None:
+    gw.post(WAI).mock(return_value=ok("Dr Smiht House", SHAKY))
+    compat = gw.post(COMPAT).mock(return_value=httpx.Response(400, json={"error": {"message": "x"}}))
+    client, _ = mk(settings(SECOND_OPINION_MODEL=SONNET, SECOND_OPINION="always"))
+    r = client.ocr_page(b"x", "image/png")
+    assert r.text == "Dr Smiht House" and not r.second_opinion_used
+    assert r.low_confidence and compat.call_count == 1  # no second call to the failed model
+
+
+def test_always_without_model_is_primary_only(gw) -> None:
+    gw.post(WAI).mock(return_value=ok("qwen", CLEAN))
+    client, _ = mk(settings(SECOND_OPINION="always"))
+    assert client.ocr_page(b"x", "image/png").text == "qwen"

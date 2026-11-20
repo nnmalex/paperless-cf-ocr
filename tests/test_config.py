@@ -260,3 +260,11 @@ def test_second_opinion_and_confidence_settings() -> None:
 def test_invalid_floats(kw: dict, attr: str, default: float) -> None:
     r = c.resolve(base(**kw))
     assert getattr(r.settings, attr) == default and len(r.problems) == 1
+
+
+def test_second_opinion_mode() -> None:
+    assert c.resolve(base()).settings.second_opinion == "low-confidence"
+    s = c.resolve(base(SECOND_OPINION="Always", SECOND_OPINION_MODEL="anthropic/x")).settings
+    assert s.second_opinion == "always" and "second_opinion=anthropic/x(always)" in s.describe()
+    r = c.resolve(base(SECOND_OPINION="sometimes"))
+    assert r.settings.second_opinion == "low-confidence" and len(r.problems) == 1
