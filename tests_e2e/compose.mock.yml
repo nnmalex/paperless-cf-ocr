@@ -17,3 +17,4 @@ services:
         condition: service_healthy
     environment:
       PAPERLESS_CF_OCR_GATEWAY_BASE_URL_OVERRIDE: http://mock-gateway:8080/v1/0123456789abcdef0123456789abcdef/e2e
+      PAPERLESS_CF_OCR_GATEWAY_TOKEN: e2e-gateway-token

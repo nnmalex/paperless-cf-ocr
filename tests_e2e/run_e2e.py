@@ -10,6 +10,7 @@ Needs: httpx, pillow, fpdf2.
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -160,6 +161,13 @@ def main() -> None:
     check("Loaded third-party parser 'Cloudflare AI Gateway OCR'" in log, "Paperless discovered the plugin")
     check("Cloudflare OCR configured:" in log, "plugin configuration logged")
     check("Cloudflare OCR: 2 page(s)" in log, "per-document summary logged")
+    # Every page must come from the gateway: a Tesseract fallback would still produce
+    # plausible text, so successful content alone does not prove the gateway worked.
+    summaries = re.findall(r"Cloudflare OCR: (\d+) page\(s\), .*? (\d+) failed", log)
+    check(bool(summaries) and all(failed == "0" for _, failed in summaries),
+          f"no page fell back to Tesseract (pages, failed per document: {summaries})")
+    gw_errors = re.findall(r"HTTP \d{3} from AI Gateway[^\n]{0,120}", log)
+    check(not gw_errors, f"no gateway errors: {gw_errors[:2]}")
     for line in log.splitlines():
         if "cf_ocr" in line or "third-party parser" in line or "paperless-cf-ocr" in line:
             print("   |", line[-220:])

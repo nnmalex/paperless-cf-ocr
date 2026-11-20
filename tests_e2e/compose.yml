@@ -28,6 +28,8 @@ services:
       PAPERLESS_CF_OCR_ACCOUNT_ID: ${PAPERLESS_CF_OCR_ACCOUNT_ID:-0123456789abcdef0123456789abcdef}
       PAPERLESS_CF_OCR_GATEWAY_ID: ${PAPERLESS_CF_OCR_GATEWAY_ID:-e2e}
       PAPERLESS_CF_OCR_API_TOKEN: ${PAPERLESS_CF_OCR_API_TOKEN:-}
-      PAPERLESS_CF_OCR_GATEWAY_TOKEN: ${PAPERLESS_CF_OCR_GATEWAY_TOKEN:-e2e-gateway-token}
+      # No defaults for credentials: an unset secret must stay unset (":-" would also
+      # replace an empty value, sending a dummy token to the real gateway).
+      PAPERLESS_CF_OCR_GATEWAY_TOKEN: ${PAPERLESS_CF_OCR_GATEWAY_TOKEN:-}
       PAPERLESS_CF_OCR_GATEWAY_BASE_URL_OVERRIDE: ${PAPERLESS_CF_OCR_GATEWAY_BASE_URL_OVERRIDE:-}
       PAPERLESS_CF_OCR_MAX_RETRIES: "2"
