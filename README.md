@@ -1,6 +1,6 @@
 # paperless-cf-ocr
 
-A [Paperless-ngx](https://docs.paperless-ngx.com/) 3.x parser plugin that OCRs scanned
+A [Paperless-ngx](https://docs.paperless-ngx.com/) 3.x (3.0.5+) parser plugin that OCRs scanned
 documents with vision language models on **Cloudflare Workers AI**, called through
 **Cloudflare AI Gateway**. It replaces Tesseract's text with a much more accurate
 transcription. It reads handwriting, form fields and degraded copies. Paperless keeps
@@ -72,10 +72,13 @@ Workers AI latency varies a lot under load, with occasional pages taking up to a
 
 ## Requirements
 
-- Paperless-ngx **3.x** with the parser plugin interface (tested with 3.5.1).
+- Paperless-ngx **3.0.5 or newer**. Every 3.x minor release from 3.0.5 to 3.5.1 is tested
+  end-to-end in the official Docker image. Before 3.1 there is no
+  `PAPERLESS_REMOTE_OCR_MODE`, so the plugin handles every supported document.
 - A Cloudflare account with an **AI Gateway**. New gateways require authentication.
-- A Cloudflare **API token** with *Workers AI: Read* and *AI Gateway: Run*, plus the
-  gateway's authentication token if it is a separate one.
+- A Cloudflare **API token** with *Workers AI: Read* and *AI Gateway: Run*. With both
+  permissions, this one token also passes an authenticated gateway. A separate gateway
+  token (`PAPERLESS_CF_OCR_GATEWAY_TOKEN`) is optional.
 
 > **Privacy.** Page images leave your server and are processed by Cloudflare Workers AI.
 > With a third-party second-opinion model such as `anthropic/...`, they are also processed
