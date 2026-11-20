@@ -1,0 +1,37 @@
+# Example: add paperless-cf-ocr to an existing Paperless-ngx docker compose setup.
+#
+# Merge the marked parts into your docker-compose.yml (the service names below match the
+# official Paperless-ngx compose files). No custom Paperless image is needed.
+#
+#   docker compose pull && docker compose up -d     # install / upgrade
+#
+# To upgrade or roll back, change the installer image tag. To remove, delete the
+# cf-ocr-installer service, the volume and the PYTHONPATH/volume lines from webserver.
+
+services:
+  # --- add: one-shot service that copies the plugin into a shared volume -------------
+  cf-ocr-installer:
+    image: ghcr.io/nnmalex/paperless-cf-ocr:0.1.0   # pin a version
+    volumes:
+      - cf-ocr:/out
+    restart: "no"
+
+  webserver:
+    image: ghcr.io/paperless-ngx/paperless-ngx:3.5
+    # ... your existing settings ...
+    depends_on:
+      # ... your existing dependencies (db, broker) ...
+      cf-ocr-installer:
+        condition: service_completed_successfully
+    volumes:
+      # ... your existing volumes ...
+      - cf-ocr:/opt/paperless-cf-ocr:ro          # --- add
+    environment:
+      # --- add: make the plugin importable (Paperless discovers it via its entry point)
+      PYTHONPATH: /opt/paperless-cf-ocr
+    env_file:
+      - docker-compose.env
+      - cf-ocr.env                               # --- add: plugin settings (see cf-ocr.env.example)
+
+volumes:
+  cf-ocr:                                        # --- add

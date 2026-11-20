@@ -1,0 +1,19 @@
+services:
+  mock-gateway:
+    image: docker.io/library/python:3.14-slim
+    command: ["python", "/mock/mock_gateway.py"]
+    volumes:
+      - ./mock_gateway.py:/mock/mock_gateway.py:ro
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 2s
+      retries: 30
+
+  webserver:
+    depends_on:
+      mock-gateway:
+        condition: service_healthy
+    environment:
+      PAPERLESS_CF_OCR_GATEWAY_BASE_URL_OVERRIDE: http://mock-gateway:8080/v1/0123456789abcdef0123456789abcdef/e2e

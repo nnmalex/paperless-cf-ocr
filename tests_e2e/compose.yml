@@ -1,0 +1,33 @@
+# End-to-end test: the official Paperless-ngx image + paperless-cf-ocr, unmodified.
+# Combine with compose.installer.yml or compose.init.yml (install method), and
+# compose.mock.yml (mock gateway) unless running against a real gateway.
+# See .github/workflows/e2e.yml and tests_e2e/run_e2e.py.
+
+name: cfocr-e2e
+
+services:
+  broker:
+    image: docker.io/valkey/valkey:9-alpine
+
+  webserver:
+    image: ghcr.io/paperless-ngx/paperless-ngx:${PAPERLESS_TAG:-3.5.1}
+    depends_on:
+      - broker
+    ports:
+      - "8000:8000"
+    environment:
+      PAPERLESS_REDIS: redis://broker:6379
+      PAPERLESS_DBENGINE: sqlite
+      PAPERLESS_SECRET_KEY: e2e-not-secret
+      PAPERLESS_ADMIN_USER: admin
+      PAPERLESS_ADMIN_PASSWORD: e2e-password
+      PAPERLESS_URL: http://localhost:8000
+      PAPERLESS_OCR_LANGUAGE: eng
+      PAPERLESS_TASK_WORKERS: "1"
+      # plugin settings (real values come from the environment in live runs)
+      PAPERLESS_CF_OCR_ACCOUNT_ID: ${PAPERLESS_CF_OCR_ACCOUNT_ID:-0123456789abcdef0123456789abcdef}
+      PAPERLESS_CF_OCR_GATEWAY_ID: ${PAPERLESS_CF_OCR_GATEWAY_ID:-e2e}
+      PAPERLESS_CF_OCR_API_TOKEN: ${PAPERLESS_CF_OCR_API_TOKEN:-}
+      PAPERLESS_CF_OCR_GATEWAY_TOKEN: ${PAPERLESS_CF_OCR_GATEWAY_TOKEN:-e2e-gateway-token}
+      PAPERLESS_CF_OCR_GATEWAY_BASE_URL_OVERRIDE: ${PAPERLESS_CF_OCR_GATEWAY_BASE_URL_OVERRIDE:-}
+      PAPERLESS_CF_OCR_MAX_RETRIES: "2"

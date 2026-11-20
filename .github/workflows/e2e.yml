@@ -1,0 +1,80 @@
+name: E2E (Paperless in Docker)
+
+# Runs the official Paperless-ngx image with the plugin installed both ways (installer image /
+# custom-cont-init.d script) against a mock gateway, and optionally against a real Cloudflare
+# AI Gateway (manual run; needs repository secrets CF_ACCOUNT_ID, CF_GATEWAY_ID,
+# CF_API_TOKEN and optionally CF_GATEWAY_TOKEN).
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      live:
+        description: "Also run against the real gateway (uses repository secrets, costs a few cents)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  mock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        method: [installer, init]
+        paperless: ["3.5.1"]
+    env:
+      PAPERLESS_TAG: ${{ matrix.paperless }}
+      COMPOSE: docker compose -f tests_e2e/compose.yml -f tests_e2e/compose.${{ matrix.method }}.yml -f tests_e2e/compose.mock.yml
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: pip install build httpx pillow fpdf2
+      - name: Prepare init-script install (wheel + root-owned script dir)
+        if: matrix.method == 'init'
+        run: |
+          python -m build --wheel --outdir tests_e2e/wheels
+          mkdir -p tests_e2e/init
+          cp deploy/docker/init/50-paperless-cf-ocr.sh tests_e2e/init/
+          sudo chown -R root:root tests_e2e/init
+          sudo chmod 755 tests_e2e/init && sudo chmod 744 tests_e2e/init/*.sh
+          echo "CF_OCR_WHEEL=/wheels/$(basename tests_e2e/wheels/*.whl)" >> "$GITHUB_ENV"
+      - run: $COMPOSE up -d --build
+      - run: python tests_e2e/run_e2e.py
+      - if: failure()
+        run: $COMPOSE logs --no-color
+      - if: always()
+        run: $COMPOSE down -v
+
+  live:
+    if: github.event_name == 'workflow_dispatch' && inputs.live
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PAPERLESS_TAG: "3.5.1"
+      COMPOSE: docker compose -f tests_e2e/compose.yml -f tests_e2e/compose.installer.yml
+      PAPERLESS_CF_OCR_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+      PAPERLESS_CF_OCR_GATEWAY_ID: ${{ secrets.CF_GATEWAY_ID }}
+      PAPERLESS_CF_OCR_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+      PAPERLESS_CF_OCR_GATEWAY_TOKEN: ${{ secrets.CF_GATEWAY_TOKEN }}
+      E2E_LIVE: "1"
+    steps:
+      - name: Secrets present
+        run: test -n "$PAPERLESS_CF_OCR_ACCOUNT_ID" -a -n "$PAPERLESS_CF_OCR_API_TOKEN" || { echo "::error::set CF_ACCOUNT_ID, CF_GATEWAY_ID, CF_API_TOKEN secrets"; exit 1; }
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: pip install httpx pillow fpdf2
+      - run: $COMPOSE up -d --build
+      - run: python tests_e2e/run_e2e.py
+      - if: failure()
+        run: $COMPOSE logs --no-color
+      - if: always()
+        run: $COMPOSE down -v

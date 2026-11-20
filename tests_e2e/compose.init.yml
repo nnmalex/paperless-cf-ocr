@@ -1,0 +1,10 @@
+# Install method 2: the custom-cont-init.d script, installing the wheel built by CI.
+# The workflow copies the init script into ./init (owned by root, mode 755/744) and the
+# wheel into ./wheels before starting.
+services:
+  webserver:
+    volumes:
+      - ./init:/custom-cont-init.d:ro
+      - ./wheels:/wheels:ro
+    environment:
+      PAPERLESS_CF_OCR_INSTALL_SOURCE: ${CF_OCR_WHEEL:?set CF_OCR_WHEEL to /wheels/<file>.whl}

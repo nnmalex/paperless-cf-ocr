@@ -121,7 +121,7 @@ class CloudflareOcrParser:
     name = "Cloudflare AI Gateway OCR"
     version = __version__
     author = "paperless-cf-ocr contributors"
-    url = "https://pypi.org/project/paperless-cf-ocr/"
+    url = "https://github.com/nnmalex/paperless-cf-ocr"
     # Document images leave the server: respect PAPERLESS_REMOTE_OCR_MODE=workflow_only.
     uses_remote_service = True
 

@@ -268,3 +268,12 @@ def test_second_opinion_mode() -> None:
     assert s.second_opinion == "always" and "second_opinion=anthropic/x(always)" in s.describe()
     r = c.resolve(base(SECOND_OPINION="sometimes"))
     assert r.settings.second_opinion == "low-confidence" and len(r.problems) == 1
+
+
+def test_gateway_base_url_override() -> None:
+    r = c.resolve(base(GATEWAY_BASE_URL_OVERRIDE="http://mock:8080/v1/a/g/"))
+    assert r.ok and any("instead of Cloudflare AI Gateway" in p for p in r.problems)  # warned
+    assert r.settings.chat_completions_url("@cf/x") == "http://mock:8080/v1/a/g/workers-ai/v1/chat/completions"
+    assert r.settings.chat_completions_url("anthropic/x") == "http://mock:8080/v1/a/g/compat/chat/completions"
+    bad = c.resolve(base(GATEWAY_BASE_URL_OVERRIDE="ftp://x"))
+    assert not bad.ok

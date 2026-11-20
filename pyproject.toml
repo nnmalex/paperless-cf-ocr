@@ -19,6 +19,10 @@ classifiers = [
 # The Docker init script installs with --no-deps so Paperless's own pins are never touched.
 dependencies = []
 
+[project.urls]
+Homepage = "https://github.com/nnmalex/paperless-cf-ocr"
+Issues = "https://github.com/nnmalex/paperless-cf-ocr/issues"
+
 [project.optional-dependencies]
 dev = ["pytest>=8", "respx>=0.21", "httpx>=0.27", "ruff>=0.6", "pypdfium2>=5", "Pillow>=11", "fpdf2>=2.8"]
 
@@ -27,6 +31,9 @@ cf_ocr = "paperless_cf_ocr.parser:CloudflareOcrParser"
 
 [tool.hatch.version]
 path = "src/paperless_cf_ocr/__init__.py"
+
+[tool.hatch.build.targets.sdist]
+exclude = ["/tools", "/.github", "/tools/lab/samples/README.md"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/paperless_cf_ocr"]

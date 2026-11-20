@@ -1,0 +1,20 @@
+# Install method 1: the installer image (built from this checkout) + PYTHONPATH.
+services:
+  cf-ocr-installer:
+    build:
+      context: ..
+      dockerfile: deploy/docker/Dockerfile
+    volumes:
+      - cf-ocr:/out
+
+  webserver:
+    depends_on:
+      cf-ocr-installer:
+        condition: service_completed_successfully
+    volumes:
+      - cf-ocr:/opt/paperless-cf-ocr:ro
+    environment:
+      PYTHONPATH: /opt/paperless-cf-ocr
+
+volumes:
+  cf-ocr:

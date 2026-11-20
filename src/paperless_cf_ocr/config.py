@@ -65,9 +65,12 @@ class GatewayRef:
     account_id: str
     gateway_id: str
     route: str | None = None  # first path segment after the gateway id, if any
+    override: str | None = None  # PAPERLESS_CF_OCR_GATEWAY_BASE_URL_OVERRIDE (tests/proxies)
 
     @property
     def base_url(self) -> str:
+        if self.override:
+            return self.override.rstrip("/")
         return f"https://{GATEWAY_HOST}/v1/{self.account_id}/{self.gateway_id}"
 
 
@@ -242,6 +245,16 @@ def resolve(env: Mapping[str, str], ai: AISettings | None = None) -> Resolution:
 
     if gateway is None and not problems and ai_gateway is not None:
         gateway, source = GatewayRef(ai_gateway.account_id, ai_gateway.gateway_id), "paperless-ai"
+
+    if gateway is not None and (override := get("GATEWAY_BASE_URL_OVERRIDE")):
+        if not override.startswith(("https://", "http://")):
+            problems.append(f"{ENV_PREFIX}GATEWAY_BASE_URL_OVERRIDE must be an http(s) URL")
+            return Resolution(None, problems)
+        problems.append(
+            f"{ENV_PREFIX}GATEWAY_BASE_URL_OVERRIDE is set: documents are sent to {override} "
+            "instead of Cloudflare AI Gateway (intended for testing and private proxies)",
+        )
+        gateway = GatewayRef(gateway.account_id, gateway.gateway_id, gateway.route, override)
 
     # --- credentials ------------------------------------------------------------------
     api_token = get("API_TOKEN")

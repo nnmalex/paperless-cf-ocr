@@ -6,3 +6,6 @@ tools/lab/results/
 tools/lab/samples/*
 !tools/lab/samples/README.md
 tests_integration/_paperless/
+tests_e2e/wheels/
+tests_e2e/init/
+dist/

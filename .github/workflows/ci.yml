@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: pip install ruff
+      - run: ruff check src tests tests_integration tests_e2e
+
+  unit:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -e '.[dev]'
+      - run: pytest
+
+  integration:
+    # Real Paperless-ngx parsing code + Tesseract/ocrmypdf, at Paperless's locked versions.
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        paperless: ["v3.5.1"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng ghostscript poppler-utils unpaper
+      - run: pip install -e '.[dev]' -c tests_integration/constraints-paperless-3.5.1.txt ocrmypdf pikepdf pillow pypdfium2
+      - run: tests_integration/fetch_paperless.sh ${{ matrix.paperless }}
+      - run: pytest tests_integration
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: pip install build twine
+      - run: python -m build && twine check dist/*
+      - name: Entry point is discoverable from a --target install (installer-image layout)
+        run: |
+          pip install --no-deps --target /tmp/site dist/*.whl
+          PYTHONPATH=/tmp/site python -c "import importlib.metadata as m; assert [e for e in m.entry_points(group='paperless_ngx.parsers') if e.name == 'cf_ocr']"
+      - name: Installer image builds
+        run: docker build -f deploy/docker/Dockerfile -t paperless-cf-ocr:ci .
