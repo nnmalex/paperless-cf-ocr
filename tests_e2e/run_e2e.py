@@ -85,7 +85,7 @@ def wait_for_api(client: httpx.Client, timeout: float = 900) -> None:
     sys.exit("Paperless did not become ready")
 
 
-def consume(client: httpx.Client, path: Path, timeout: float = 600) -> dict:
+def consume(client: httpx.Client, path: Path, timeout: float = 300) -> dict:
     with path.open("rb") as fh:
         r = client.post("/api/documents/post_document/", files={"document": (path.name, fh)})
     r.raise_for_status()
@@ -95,11 +95,15 @@ def consume(client: httpx.Client, path: Path, timeout: float = 600) -> dict:
         tasks = client.get("/api/tasks/", params={"task_id": task_id}).json()
         task = (tasks.get("results", tasks) if isinstance(tasks, dict) else tasks)
         task = task[0] if task else {}
-        if task.get("status") in ("SUCCESS", "FAILURE"):
-            print(f"  {path.name}: {task['status']} after {time.monotonic() - t0:.0f}s", flush=True)
-            if task["status"] != "SUCCESS":
-                return {"_error": task.get("result")}
-            doc_id = task.get("related_document")
+        # API v10 (Paperless 3.5 default): lowercase status, related_document_ids list;
+        # API v9: uppercase Celery states, related_document.
+        status = str(task.get("status", "")).lower()
+        if status in ("success", "failure", "revoked"):
+            print(f"  {path.name}: {status} after {time.monotonic() - t0:.0f}s", flush=True)
+            if status != "success":
+                return {"_error": task.get("result") or task.get("result_message") or task}
+            ids = task.get("related_document_ids") or [task.get("related_document")]
+            doc_id = ids[0]
             return client.get(f"/api/documents/{doc_id}/").json() | {"_id": doc_id}
         time.sleep(3)
     return {"_error": "timeout"}
