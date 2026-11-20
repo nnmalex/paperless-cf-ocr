@@ -1,6 +1,6 @@
 __pycache__/
 *.py[cod]
-.venv/
+.venv*/
 .env
 tools/lab/results/
 tools/lab/samples/*
