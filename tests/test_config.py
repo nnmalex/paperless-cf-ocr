@@ -186,12 +186,12 @@ def base(**kw: str) -> dict[str, str]:
 def test_tuning_values() -> None:
     s = c.resolve(base(
         TIMEOUT="300", CONCURRENCY="8", DPI="300", MAX_IMAGE_PX="3000", MAX_PAGES="50",
-        SCORE="25", ARCHIVE="NONE", FALLBACK="fail", MAX_RETRIES="0",
+        SCORE="25", ARCHIVE="NONE", FALLBACK="fail", MAX_RETRIES="0", EXISTING_TEXT="Trust",
         EXTRA_PARAMS='{"temperature": 0, "reasoning_effort": "low"}',
     )).settings
     assert (s.timeout, s.concurrency, s.dpi, s.max_image_px, s.max_pages, s.score) == (
         300.0, 8, 300, 3000, 50, 25)
-    assert (s.archive, s.fallback, s.max_retries) == ("none", "fail", 0)
+    assert (s.archive, s.fallback, s.max_retries, s.existing_text) == ("none", "fail", 0, "trust")
     assert s.extra_params == {"temperature": 0, "reasoning_effort": "low"}
 
 

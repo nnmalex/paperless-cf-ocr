@@ -93,6 +93,9 @@ class Settings:
     max_pages: int = 200
     score: int = 30
     archive: str = "hybrid"  # "hybrid" | "none"
+    # PDFs that already contain text: "auto" = OCR unless born-digital (text and no
+    # full-page scan images), "trust" = keep any existing text layer, "ignore" = always OCR.
+    existing_text: str = "auto"
     fallback: str = "tesseract"  # "tesseract" | "fail"
     source: str = "plugin"  # where the connection settings came from, for logs
 
@@ -304,6 +307,7 @@ def resolve(env: Mapping[str, str], ai: AISettings | None = None) -> Resolution:
         max_pages=get_int("MAX_PAGES", 200, 1, 10000),
         score=get_int("SCORE", 30, 1, 1000),
         archive=get_choice("ARCHIVE", "hybrid", ("hybrid", "none")),
+        existing_text=get_choice("EXISTING_TEXT", "auto", ("auto", "trust", "ignore")),
         fallback=get_choice("FALLBACK", "tesseract", ("tesseract", "fail")),
         source=source,
     )

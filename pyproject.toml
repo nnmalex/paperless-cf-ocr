@@ -20,7 +20,7 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "respx>=0.21", "httpx>=0.27", "ruff>=0.6"]
+dev = ["pytest>=8", "respx>=0.21", "httpx>=0.27", "ruff>=0.6", "pypdfium2>=5", "Pillow>=11", "fpdf2>=2.8"]
 
 [project.entry-points."paperless_ngx.parsers"]
 cf_ocr = "paperless_cf_ocr.parser:CloudflareOcrParser"
