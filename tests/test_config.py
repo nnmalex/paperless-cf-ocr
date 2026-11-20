@@ -68,7 +68,9 @@ def test_plugin_env_ids() -> None:
     assert r.ok and not r.problems
     s = r.settings
     assert s.gateway.base_url == GW_URL
-    assert s.chat_completions_url == f"{GW_URL}/workers-ai/v1/chat/completions"
+    assert s.chat_completions_url(s.model) == f"{GW_URL}/workers-ai/v1/chat/completions"
+    assert s.chat_completions_url("anthropic/claude-sonnet-5-5") == f"{GW_URL}/compat/chat/completions"
+    assert s.second_opinion_model is None
     assert s.model == c.DEFAULT_MODEL
     assert s.prompt == c.DEFAULT_PROMPT
     assert s.source == "plugin"
@@ -240,3 +242,21 @@ def test_describe_never_contains_secrets() -> None:
 
 def test_paperless_ai_settings_outside_paperless_returns_none() -> None:
     assert c.paperless_ai_settings() is None
+
+
+def test_second_opinion_and_confidence_settings() -> None:
+    s = c.resolve(base(SECOND_OPINION_MODEL="anthropic/claude-sonnet-5-5",
+                       LOW_CONFIDENCE_RATIO="0.02", LOW_CONFIDENCE_MIN="0.1",
+                       MAX_TOKENS="4096")).settings
+    assert s.second_opinion_model == "anthropic/claude-sonnet-5-5"
+    assert (s.low_confidence_ratio, s.low_confidence_min, s.max_tokens) == (0.02, 0.1, 4096)
+    assert "second_opinion=anthropic/claude-sonnet-5-5" in s.describe()
+
+
+@pytest.mark.parametrize(("kw", "attr", "default"), [
+    ({"LOW_CONFIDENCE_RATIO": "lots"}, "low_confidence_ratio", 0.01),
+    ({"LOW_CONFIDENCE_MIN": "1.5"}, "low_confidence_min", 0.2),
+])
+def test_invalid_floats(kw: dict, attr: str, default: float) -> None:
+    r = c.resolve(base(**kw))
+    assert getattr(r.settings, attr) == default and len(r.problems) == 1

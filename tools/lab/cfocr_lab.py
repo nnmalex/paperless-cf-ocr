@@ -52,6 +52,9 @@ MODELS: dict[str, tuple[str, str]] = {
     "llama4-scout": ("@cf/meta/llama-4-scout-17b-16e-instruct", "openai"),
     "qwen3.8-27b": ("@cf/qwen/qwen3.8-27b", "openai"),
     "gemma4-26b": ("@cf/google/gemma-4-26b-a4b-it", "openai"),
+    # Third-party models via the gateway's unified OpenAI-compatible route (billed through
+    # Cloudflare). Sonnet 5.5 rejects non-default temperature, so none is sent.
+    "sonnet-5.5": ("anthropic/claude-sonnet-5-5", "compat-3p"),
 }
 DEFAULT_EVAL = ["moondream", "mistral-small", "llama4-scout", "qwen3.8-27b"]
 
@@ -220,6 +223,10 @@ def build_request(gw: GW, model: str, style: str, image_uri: str, max_tokens: in
             {"type": "image_url", "image_url": {"url": image_uri}},
         ],
     }]
+    if style == "compat-3p":
+        return f"{gw.base}/compat/chat/completions", {
+            "model": model, "messages": messages, "max_tokens": max_tokens,
+        }
     if variant == "direct":
         return f"https://api.cloudflare.com/client/v4/accounts/{gw.account}/ai/v1/chat/completions", {
             "model": model, "messages": messages, "temperature": 0, "max_tokens": max_tokens,

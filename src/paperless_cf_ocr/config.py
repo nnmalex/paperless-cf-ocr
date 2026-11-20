@@ -77,6 +77,12 @@ class Settings:
     api_token: str | None
     gateway_token: str | None
     model: str = DEFAULT_MODEL
+    # Optional: re-run low-confidence pages on this model and use its output instead,
+    # e.g. "anthropic/claude-sonnet-5-5". None disables the second opinion.
+    second_opinion_model: str | None = None
+    low_confidence_ratio: float = 0.01  # page is low-confidence if >1% of words have p<0.5
+    low_confidence_min: float = 0.2  # ...or any single word has p<0.2 (or [illegible] appears)
+    max_tokens: int = 8192
     prompt: str = DEFAULT_PROMPT
     extra_params: dict[str, Any] = field(default_factory=dict)
     timeout: float = 180.0
@@ -90,9 +96,12 @@ class Settings:
     fallback: str = "tesseract"  # "tesseract" | "fail"
     source: str = "plugin"  # where the connection settings came from, for logs
 
-    @property
-    def chat_completions_url(self) -> str:
-        return f"{self.gateway.base_url}/workers-ai/v1/chat/completions"
+    def chat_completions_url(self, model: str) -> str:
+        """Workers AI models (``@cf/...``) use the gateway's Workers AI route; anything else
+        (``anthropic/...``, ``openai/...``) goes through the unified OpenAI-compatible route."""
+        if is_workers_ai(model):
+            return f"{self.gateway.base_url}/workers-ai/v1/chat/completions"
+        return f"{self.gateway.base_url}/compat/chat/completions"
 
     def headers(self) -> dict[str, str]:
         """HTTP headers for a gateway request. Never log the return value."""
@@ -112,7 +121,8 @@ class Settings:
     def describe(self) -> str:
         """Secret-free summary for logs."""
         return (
-            f"gateway={self.gateway.gateway_id} model={self.model} source={self.source} "
+            f"gateway={self.gateway.gateway_id} model={self.model} "
+            f"second_opinion={self.second_opinion_model or 'off'} source={self.source} "
             f"auth={'api-token' if self.api_token else ''}"
             f"{'+' if self.api_token and self.gateway_token else ''}"
             f"{'gateway-token' if self.gateway_token else ''}"
@@ -128,6 +138,10 @@ class Resolution:
     @property
     def ok(self) -> bool:
         return self.enabled and self.settings is not None
+
+
+def is_workers_ai(model: str) -> bool:
+    return model.startswith(("@cf/", "@hf/"))
 
 
 def parse_gateway_url(url: str | None) -> GatewayRef | None:
@@ -162,6 +176,20 @@ def resolve(env: Mapping[str, str], ai: AISettings | None = None) -> Resolution:
             v = int(raw)
         except ValueError:
             problems.append(f"{ENV_PREFIX}{name}={raw!r} is not an integer; using {default}")
+            return default
+        if not lo <= v <= hi:
+            problems.append(f"{ENV_PREFIX}{name}={v} outside {lo}..{hi}; using {default}")
+            return default
+        return v
+
+    def get_float(name: str, default: float, lo: float, hi: float) -> float:
+        raw = get(name)
+        if raw is None:
+            return default
+        try:
+            v = float(raw)
+        except ValueError:
+            problems.append(f"{ENV_PREFIX}{name}={raw!r} is not a number; using {default}")
             return default
         if not lo <= v <= hi:
             problems.append(f"{ENV_PREFIX}{name}={v} outside {lo}..{hi}; using {default}")
@@ -262,6 +290,10 @@ def resolve(env: Mapping[str, str], ai: AISettings | None = None) -> Resolution:
         api_token=api_token,
         gateway_token=gateway_token,
         model=get("MODEL") or DEFAULT_MODEL,
+        second_opinion_model=get("SECOND_OPINION_MODEL"),
+        low_confidence_ratio=get_float("LOW_CONFIDENCE_RATIO", 0.01, 0.0, 1.0),
+        low_confidence_min=get_float("LOW_CONFIDENCE_MIN", 0.2, 0.0, 1.0),
+        max_tokens=get_int("MAX_TOKENS", 8192, 256, 65536),
         prompt=prompt or DEFAULT_PROMPT,
         extra_params=extra,
         timeout=float(timeout),
