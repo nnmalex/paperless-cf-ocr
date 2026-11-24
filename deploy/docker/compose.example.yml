@@ -11,7 +11,7 @@
 services:
   # --- add: one-shot service that copies the plugin into a shared volume -------------
   cf-ocr-installer:
-    image: ghcr.io/nnmalex/paperless-cf-ocr:0.1.0   # pin a version
+    image: ghcr.io/nnmalex/paperless-cf-ocr:0.2.0   # pin a version
     volumes:
       - cf-ocr:/out
     restart: "no"

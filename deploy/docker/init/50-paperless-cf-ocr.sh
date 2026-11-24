@@ -6,13 +6,13 @@
 # Needs internet access on every start and does not work for rootless containers; prefer
 # the installer image (compose.example.yml) where possible.
 #
-# Optional: PAPERLESS_CF_OCR_VERSION=0.1.0 pins the version (recommended);
+# Optional: PAPERLESS_CF_OCR_VERSION=0.2.0 pins the version (recommended);
 #           PAPERLESS_CF_OCR_INSTALL_SOURCE=<path or pip spec> installs from elsewhere.
 # A failure never blocks Paperless: it starts with its built-in parsers instead.
 
 spec="paperless-cf-ocr"
 [ -n "${PAPERLESS_CF_OCR_VERSION:-}" ] && spec="paperless-cf-ocr==${PAPERLESS_CF_OCR_VERSION}"
-# Or install from somewhere else, e.g. a mounted wheel: /wheels/paperless_cf_ocr-0.1.0-py3-none-any.whl
+# Or install from somewhere else, e.g. a mounted wheel: /wheels/paperless_cf_ocr-0.2.0-py3-none-any.whl
 [ -n "${PAPERLESS_CF_OCR_INSTALL_SOURCE:-}" ] && spec="${PAPERLESS_CF_OCR_INSTALL_SOURCE}"
 
 echo "[paperless-cf-ocr] installing ${spec}"

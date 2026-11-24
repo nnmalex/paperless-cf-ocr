@@ -106,7 +106,7 @@ file, create `cf-ocr.env` from
 ```sh
 docker compose pull && docker compose up -d
 docker compose logs webserver | grep -i "third-party parser"
-# Loaded third-party parser 'Cloudflare AI Gateway OCR' v0.1.0 ...
+# Loaded third-party parser 'Cloudflare AI Gateway OCR' v0.2.0 ...
 ```
 
 To upgrade or roll back, change the installer image tag.
