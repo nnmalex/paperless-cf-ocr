@@ -27,7 +27,14 @@ logger = logging.getLogger("paperless.parsing.cf_ocr")
 
 ENV_PREFIX = "PAPERLESS_CF_OCR_"
 GATEWAY_HOST = "gateway.ai.cloudflare.com"
-DEFAULT_MODEL = "@cf/qwen/qwen3.8-27b"
+DEFAULT_MODEL = "@cf/deepseek-ai/deepseek-v4.1-flash-1017"
+
+# Request parameters sent for a model unless PAPERLESS_CF_OCR_EXTRA_PARAMS overrides them.
+# DeepSeek V4.1 Flash reasons by default (effort "high"); for OCR that only adds latency and,
+# in the lab, used up the whole output budget before any text on dense pages.
+MODEL_DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
+    DEFAULT_MODEL: {"reasoning_effort": "none"},
+}
 
 # Chosen in milestone-1 evaluation (tools/lab): without these rules vision models
 # "reconstruct" unreadable text from what similar forms usually say.

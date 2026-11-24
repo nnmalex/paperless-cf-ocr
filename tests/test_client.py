@@ -80,6 +80,29 @@ def test_workers_ai_request_shape(gw) -> None:
     assert t.text == "Hello world" and t.confidence is not None and t.attempts == 1
 
 
+def test_default_model_gets_reasoning_disabled(gw) -> None:
+    route = gw.post(WAI).mock(return_value=ok("Hello world", CLEAN))
+    client, _ = mk()
+    client.transcribe(b"x", "image/png")
+    body = json.loads(route.calls.last.request.content)
+    assert body["model"] == c.DEFAULT_MODEL and body["reasoning_effort"] == "none"
+
+
+def test_other_models_get_no_model_defaults(gw) -> None:
+    route = gw.post(WAI).mock(return_value=ok("Hello world", CLEAN))
+    client, _ = mk(settings(MODEL="@cf/qwen/qwen3.8-27b"))
+    client.transcribe(b"x", "image/png")
+    assert "reasoning_effort" not in json.loads(route.calls.last.request.content)
+
+
+def test_model_defaults_apply_to_second_opinion_model(gw) -> None:
+    route = gw.post(WAI).mock(return_value=ok("Hello world", CLEAN))
+    client, _ = mk(settings(MODEL=SONNET, SECOND_OPINION_MODEL=c.DEFAULT_MODEL,
+                            SECOND_OPINION="always"))
+    client.ocr_page(b"x", "image/png")
+    assert json.loads(route.calls.last.request.content)["reasoning_effort"] == "none"
+
+
 def test_third_party_model_uses_compat_without_sampling_or_extra_params(gw) -> None:
     route = gw.post(COMPAT).mock(return_value=ok("Hi"))
     client, _ = mk(settings(EXTRA_PARAMS='{"reasoning_effort": "low"}'))
@@ -183,6 +206,35 @@ def test_truncated_answer_is_kept_and_flagged(gw) -> None:
     gw.post(WAI).mock(return_value=ok("partial text", CLEAN, finish="length"))
     client, _ = mk()
     assert client.transcribe(b"x", "image/png").truncated
+
+
+LOOP = "Name: Dr X\n" + "[illegible]\n" * 200
+
+
+def test_repetition_loop_is_retried(gw) -> None:
+    gw.post(WAI).mock(side_effect=[ok(LOOP, CLEAN, finish="length"), ok("now text", CLEAN)])
+    client, sleeps = mk()
+    assert client.transcribe(b"x", "image/png").text == "now text"
+    assert len(sleeps) == 1
+
+
+def test_persistent_repetition_loop_is_an_error(gw) -> None:
+    gw.post(WAI).mock(return_value=ok(LOOP, CLEAN, finish="length"))
+    client, _ = mk(settings(MAX_RETRIES="1"))
+    with pytest.raises(cl.OcrError, match="repeating itself"):
+        client.transcribe(b"x", "image/png")
+
+
+@pytest.mark.parametrize(("text", "looping"), [
+    ("[illegible]\n" * 100, True),
+    ("ab" * 400, True),
+    ("x" * 1000, True),
+    ("short\n" * 10, False),  # below the window
+    ("".join(f"row {i} | value {i * 7}\n" for i in range(100)), False),  # long table
+    (("[illegible]\n" * 100) + "Signed: Dr X", False),  # loop not at the end
+])
+def test_is_looping(text: str, looping: bool) -> None:
+    assert cl.is_looping(text) is looping
 
 
 def test_malformed_response(gw) -> None:

@@ -8,7 +8,8 @@ everything else: thumbnails, searchable archive PDFs, workflows and AI suggestio
 
 - Works with **native and Docker installs**, with no custom Paperless image and no sidecar
   service.
-- **Default model: Qwen 3.8 27B** (`@cf/qwen/qwen3.8-27b`). Any Workers AI vision model,
+- **Default model: DeepSeek V4.1 Flash** (`@cf/deepseek-ai/deepseek-v4.1-flash-1017`, with
+  reasoning off). Any Workers AI vision model,
   or third-party models routed through the gateway, can be selected.
 - **Confidence-aware.** Each page gets a confidence score from token probabilities. Pages
   the model is unsure about can optionally be re-read by a second model, such as Claude
@@ -63,12 +64,15 @@ transcribed correctly.
 | | Typed letter (word F1) | Form + handwriting | Degraded copy + handwriting | Speed (median / page) | Cost / 1,000 pages |
 |---|---|---|---|---|---|
 | Existing scanner OCR (Tesseract) | 0.980 | 24/26 | 10/21 | – | – |
-| **Qwen 3.8 27B** (default) | 0.997 | 26/26 | 18–19/21 | 16 s | ~$3.50 |
+| **DeepSeek V4.1 Flash** (default, reasoning off) | 0.998 | 25/26 | 18–19/21 | 4 s | ~$1 |
+| Qwen 3.8 27B (previous default) | 0.997 | 26/26 | 18–19/21 | 16 s | ~$3.50 |
 | Mistral Small 3.1 | 0.996 | 25/26 | 18/21 | 15 s | ~$1 |
 | Claude Sonnet 5.5 | 0.998 | 26/26 | 21/21 | 5 s | ~$15 |
 
 Workers AI latency varies a lot under load, with occasional pages taking up to about
-100 s. The plugin processes 4 pages at a time.
+100 s (Qwen); DeepSeek's slowest page in testing took 18 s. The plugin processes 4 pages at a
+time. Models occasionally get stuck repeating one line until the output limit (DeepSeek did
+once in 11 reads of the hardest page); the plugin detects this and retries the page.
 
 ## Requirements
 
@@ -76,6 +80,8 @@ Workers AI latency varies a lot under load, with occasional pages taking up to a
   end-to-end in the official Docker image. Before 3.1 there is no
   `PAPERLESS_REMOTE_OCR_MODE`, so the plugin handles every supported document.
 - A Cloudflare account with an **AI Gateway**. New gateways require authentication.
+- The **Workers Paid** plan for the default model (DeepSeek V4.1 Flash is paid-only). On the
+  free plan, pick another model such as `@cf/qwen/qwen3.8-27b`.
 - A Cloudflare **API token** with *Workers AI: Read* and *AI Gateway: Run*. With both
   permissions, this one token also passes an authenticated gateway. A separate gateway
   token (`PAPERLESS_CF_OCR_GATEWAY_TOKEN`) is optional.
@@ -134,7 +140,7 @@ Only a gateway and a credential are required.
 | `PAPERLESS_CF_OCR_GATEWAY_URL` | | …or `https://gateway.ai.cloudflare.com/v1/<account>/<gateway>` |
 | `PAPERLESS_CF_OCR_API_TOKEN` | | sent as `Authorization: Bearer` |
 | `PAPERLESS_CF_OCR_GATEWAY_TOKEN` | | sent as `cf-aig-authorization` (authenticated gateways) |
-| `PAPERLESS_CF_OCR_MODEL` | `@cf/qwen/qwen3.8-27b` | `@cf/...` models use the Workers AI route; `provider/model` uses the gateway's OpenAI-compatible route |
+| `PAPERLESS_CF_OCR_MODEL` | `@cf/deepseek-ai/deepseek-v4.1-flash-1017` | `@cf/...` models use the Workers AI route; `provider/model` uses the gateway's OpenAI-compatible route |
 | `PAPERLESS_CF_OCR_SECOND_OPINION_MODEL` | off | e.g. `anthropic/claude-sonnet-5-5` |
 | `PAPERLESS_CF_OCR_SECOND_OPINION` | `low-confidence` | `always`: send every page to the second model (primary as fallback) |
 | `PAPERLESS_CF_OCR_LOW_CONFIDENCE_RATIO` | `0.01` | share of words with p < 0.5 that makes a page low-confidence |
@@ -143,9 +149,9 @@ Only a gateway and a credential are required.
 | `PAPERLESS_CF_OCR_ARCHIVE` | `hybrid` | `none`: never build archive PDFs (saves Tesseract CPU) |
 | `PAPERLESS_CF_OCR_FALLBACK` | `tesseract` | `fail`: fail the document when a page cannot be OCR'd |
 | `PAPERLESS_CF_OCR_PROMPT` / `_PROMPT_FILE` | built-in strict prompt | override the transcription instructions |
-| `PAPERLESS_CF_OCR_EXTRA_PARAMS` | `{}` | JSON merged into primary-model requests |
+| `PAPERLESS_CF_OCR_EXTRA_PARAMS` | `{}` | JSON merged into primary-model requests; overrides the default model's `{"reasoning_effort": "none"}` |
 | `PAPERLESS_CF_OCR_TIMEOUT` | `180` | seconds per request |
-| `PAPERLESS_CF_OCR_MAX_RETRIES` | `4` | retries on 408/429/5xx, network errors, empty answers |
+| `PAPERLESS_CF_OCR_MAX_RETRIES` | `4` | retries on 408/429/5xx, network errors, empty answers, repetition loops |
 | `PAPERLESS_CF_OCR_CONCURRENCY` | `4` | pages in flight per document |
 | `PAPERLESS_CF_OCR_DPI` / `_MAX_IMAGE_PX` | `200` / `2048` | page rendering |
 | `PAPERLESS_CF_OCR_MAX_PAGES` | `200` | also limited by `PAPERLESS_OCR_PAGES` |
@@ -169,7 +175,7 @@ The plugin logs to `paperless.parsing.cf_ocr`:
 
 - `Cloudflare OCR configured: gateway=… model=… auth=…`: the effective settings, without
   secrets.
-- `page 2: @cf/qwen/qwen3.8-27b confidence mean=0.957 low=2.1% min=0.17 …`: the
+- `page 2: @cf/deepseek-ai/deepseek-v4.1-flash-1017 confidence mean=0.957 low=2.1% min=0.17 …`: the
   per-page confidence.
 - `Cloudflare OCR: 4 page(s), 1 low-confidence, 1 second opinion(s), 0 failed`: the
   per-document summary.

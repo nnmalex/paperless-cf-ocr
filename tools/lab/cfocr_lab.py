@@ -52,11 +52,12 @@ MODELS: dict[str, tuple[str, str]] = {
     "llama4-scout": ("@cf/meta/llama-4-scout-17b-16e-instruct", "openai"),
     "qwen3.8-27b": ("@cf/qwen/qwen3.8-27b", "openai"),
     "gemma4-26b": ("@cf/google/gemma-4-26b-a4b-it", "openai"),
+    "deepseek-v4.1-flash": ("@cf/deepseek-ai/deepseek-v4.1-flash-1017", "openai"),
     # Third-party models via the gateway's unified OpenAI-compatible route (billed through
     # Cloudflare). Sonnet 5.5 rejects non-default temperature, so none is sent.
     "sonnet-5.5": ("anthropic/claude-sonnet-5-5", "compat-3p"),
 }
-DEFAULT_EVAL = ["moondream", "mistral-small", "llama4-scout", "qwen3.8-27b"]
+DEFAULT_EVAL = ["mistral-small", "qwen3.8-27b", "deepseek-v4.1-flash"]
 
 
 # --------------------------------------------------------------------------- config

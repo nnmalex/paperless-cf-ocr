@@ -152,7 +152,7 @@ def main() -> None:
         after = httpx.get(f"{MOCK}/stats").json()
         n = after["workers_ai"] - mock_before["workers_ai"]
         check(n == 3, f"gateway saw 3 page requests (2 scan + 1 photo, none for born-digital): {n}")
-        check(set(after["models"]) == {"@cf/qwen/qwen3.8-27b"}, f"default model used: {set(after['models'])}")
+        check(set(after["models"]) == {"@cf/deepseek-ai/deepseek-v4.1-flash-1017"}, f"default model used: {set(after['models'])}")
         check(after["aig"] >= 3, "cf-aig-authorization sent")
         check(all(ua.startswith("paperless-cf-ocr/") for ua in after["user_agents"]), "User-Agent set")
 

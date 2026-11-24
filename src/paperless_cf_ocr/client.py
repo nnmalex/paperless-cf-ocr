@@ -7,8 +7,9 @@ Routes (see :meth:`Settings.chat_completions_url`):
 * anything else (``anthropic/claude-sonnet-5-5`` ...) -> ``{gateway}/compat/chat/completions``
   without sampling parameters (Claude models reject a non-default temperature).
 
-Behaviour learned in the milestone-1 lab: Workers AI returns 408 after ~120 s under load and
-reasoning models occasionally return an empty answer, so both are retried.
+Behaviour learned in the milestone-1 lab: Workers AI returns 408 after ~120 s under load,
+reasoning models occasionally return an empty answer, and models occasionally get stuck
+repeating one line (e.g. ``[illegible]``) until the output limit, so all three are retried.
 """
 
 from __future__ import annotations
@@ -25,17 +26,33 @@ from typing import Any, Self
 import httpx
 
 from .confidence import PageConfidence, page_confidence
-from .config import Settings, is_workers_ai
+from .config import MODEL_DEFAULT_PARAMS, Settings, is_workers_ai
 
 logger = logging.getLogger("paperless.parsing.cf_ocr")
 
 RETRYABLE_STATUS = frozenset({408, 409, 425, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524, 529})
 MAX_BACKOFF = 30.0
 MAX_RETRY_AFTER = 60.0
+# A truncated answer whose last LOOP_WINDOW characters are one unit of at most LOOP_MAX_PERIOD
+# characters repeated is a degenerate loop, not a long page.
+LOOP_WINDOW = 600
+LOOP_MAX_PERIOD = 200
+
+
+def is_looping(text: str) -> bool:
+    """True if ``text`` ends in the same short unit repeated over the last LOOP_WINDOW chars."""
+    tail = text[-LOOP_WINDOW:]
+    if len(tail) < LOOP_WINDOW:
+        return False
+    return any(tail[p:] == tail[:-p] for p in range(1, LOOP_MAX_PERIOD + 1))
 
 
 class OcrError(Exception):
     """A page could not be transcribed."""
+
+
+class _RetryableAnswer(Exception):
+    """A 200 response whose content is unusable but may succeed on another attempt."""
 
 
 class AuthError(OcrError):
@@ -145,8 +162,9 @@ class GatewayClient:
             payload["temperature"] = 0
             if logprobs:
                 payload["logprobs"] = True
+        payload.update(MODEL_DEFAULT_PARAMS.get(model, {}))
         if primary:
-            # User-supplied tuning targets the primary model only; e.g. Qwen-specific
+            # User-supplied tuning targets the primary model only; e.g. model-specific
             # parameters could be rejected by the second-opinion provider.
             payload.update(self.s.extra_params)
         return payload
@@ -171,10 +189,10 @@ class GatewayClient:
                 last_problem = f"{type(e).__name__}: {e}"
             else:
                 if resp.status_code == 200:
-                    result = self._parse(resp, model, t0, attempts)
-                    if result is not None:
-                        return result
-                    last_problem = "model returned an empty transcription"
+                    try:
+                        return self._parse(resp, model, t0, attempts)
+                    except _RetryableAnswer as e:
+                        last_problem = str(e)
                 elif resp.status_code in (401, 403):
                     raise AuthError(
                         f"{model}: HTTP {resp.status_code} from AI Gateway ({_error_message(resp)}). "
@@ -205,7 +223,7 @@ class GatewayClient:
         raise OcrError(f"{model}: giving up after {attempts} attempt(s): {last_problem}")
 
     def _parse(self, resp: httpx.Response, model: str, t0: float,
-               attempts: int) -> Transcription | None:
+               attempts: int) -> Transcription:
         try:
             body = resp.json()
             choice = body["choices"][0]
@@ -219,7 +237,10 @@ class GatewayClient:
                     f"{model}: output limit reached before any text "
                     f"(raise PAPERLESS_CF_OCR_MAX_TOKENS, currently {self.s.max_tokens})",
                 )
-            return None  # empty answer (e.g. reasoning consumed the turn): retry
+            # e.g. reasoning consumed the turn
+            raise _RetryableAnswer("model returned an empty transcription")
+        if finish == "length" and is_looping(text):
+            raise _RetryableAnswer("model got stuck repeating itself until the output limit")
         lp = choice.get("logprobs")
         tokens = lp.get("content") if isinstance(lp, dict) else None
         if finish == "length":
