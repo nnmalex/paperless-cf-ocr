@@ -1,6 +1,9 @@
 name: Release
 
 # Push a tag like v0.1.0. The tag must match the version in src/paperless_cf_ocr/__init__.py.
+# After PyPI and the image are published, a GitHub Release is created with the wheel and
+# sdist attached. Its notes come from .github/release-notes/<tag>.md (commit that file before
+# tagging); without one, GitHub's auto-generated notes are used.
 # PyPI uses Trusted Publishing: configure this repository/workflow/environment "pypi" as a
 # trusted publisher on PyPI first; no API token is stored in the repository.
 on:
@@ -70,3 +73,23 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+  github-release:
+    needs: [pypi, image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          notes=".github/release-notes/$TAG.md"
+          if [ -f "$notes" ]; then src=(--notes-file "$notes"); else src=(--generate-notes); fi
+          gh release create "$TAG" dist/* --verify-tag --title "paperless-cf-ocr ${TAG#v}" "${src[@]}"
